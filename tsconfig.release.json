@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./lib",            // <--- 关键：扁平化输出结构
+    "declaration": true,           // 生成 .d.ts 文件
+    "sourceMap": false,            // 发布包通常不需要 map
+    "removeComments": true         // 移除注释减小体积
+  },
+  "include": ["lib/**/*"],         // 只编译源码
+  "exclude": ["test/**/*", "dist", "test_dist", "node_modules"]
+}

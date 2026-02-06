@@ -1,0 +1,59 @@
+{
+  "name": "module-ffmpeg-core",
+  "version": "1.0.0",
+  "description": "",
+  "main": "",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "scripts": {
+    "//": "流程: 清理test_dist -> 编译测试TS -> 运行Jest",
+    "clean": "rimraf dist cpp-lib build test_dist",
+    "///": "=== C++ 原生编译 (cmake-js) ===",
+    "build:native": "cmake-js build",
+    "build:native:debug": "cmake-js build --debug",
+    "rebuild:native": "rimraf build cpp-lib && pnpm run build:native",
+    "////": "=== 发布流程 (Release) ===",
+    "prebuild:release": "rimraf dist",
+    "compile:ts:release": "tsc -p tsconfig.release.json",
+    "copy:addon": "shx cp build/Release/module-ffmplayer-core.node dist/",
+
+    "/////": "流程: 清理dist -> 编译C++(增量) -> 编译TS -> 复制.node到dist",
+    "build:release": "pnpm run prebuild:release && pnpm run build:native && pnpm run compile:ts:release && pnpm run copy:addon",
+
+    "//////": "=== 测试流程 (Test) ===",
+    "prebuild:test": "rimraf test_dist",
+    "compile:ts:test": "tsc -p tsconfig.test.json",
+    "exec:jest": "jest --config jest.config.js",
+
+    "///////": "流程: 清理test_dist -> 编译C++(增量) -> 编译测试TS -> 运行Jest",
+    "test": "pnpm run prebuild:test && pnpm run compile:ts:test && pnpm run exec:jest"
+  },
+  "files": [
+    "lib/*",
+    "build/Release/*.node"
+  ],
+  "binary": {
+    "napi_versions": [
+      8
+    ]
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/jest": "^30.0.0",
+    "@types/node": "^25.0.3",
+    "cmake-js": "^7.4.0",
+    "node-addon-api": "^8.5.0",
+    "rimraf": "^6.1.2",
+    "shx": "^0.4.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  },
+  "dependencies": {
+    "@types/bindings": "^1.5.5",
+    "bindings": "^1.5.0",
+    "prebuild-install": "^7.1.3"
+  }
+}

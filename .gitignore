@@ -1,0 +1,6 @@
+build/
+node_modules/
+dist/
+cpp-lib/**
+test_dist/
+ffmpeg-api-test/test.mp4

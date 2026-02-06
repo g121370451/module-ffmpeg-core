@@ -1,0 +1,12 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",                // Node.js 14+ 支持的语法
+    "module": "commonjs",              // Node 默认模块系统
+    "moduleResolution": "node",
+    "esModuleInterop": true,           // 允许 import x from 'commonjs-lib'
+    "strict": true,                    // 开启严格类型检查
+    "skipLibCheck": true,              // 跳过 node_modules 类型检查
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true
+  }
+}

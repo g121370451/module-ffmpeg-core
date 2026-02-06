@@ -1,0 +1,24 @@
+{
+  "name": "ffmpeg-api-node",
+  "version-string": "1.0.0",
+  "dependencies": [
+    {
+      "name": "ffmpeg",
+      "features": [
+        "all"
+      ]
+    },
+    {
+      "name": "spdlog"
+    },
+    {
+      "name": "gtest"
+    },
+    {
+      "name": "nlohmann-json"
+    },
+    {
+      "name": "magic-enum"
+    }
+  ]
+}
