@@ -5,7 +5,7 @@ const nativeAddon = bindings('module-ffmplayer-core');
 
 // --- 类型定义 ---
 
-export interface FrameData {
+declare interface FrameData {
     success: boolean;
     data?: Buffer; // 只有 success 为 true 时才有
     width?: number;
@@ -13,7 +13,7 @@ export interface FrameData {
     timestamp?: number;
 }
 
-export interface MediaInfo {
+declare interface MediaInfo {
     valid: boolean;
     type: string;     // e.g., "video", "audio"
     duration: number; // 秒
@@ -34,25 +34,32 @@ interface INativeMediaManager {
     getNextFrame(devId: string, index: number): FrameData;
 }
 
-// --- 导出部分 ---
+// 2. 类接口 (包含静态方法)
+declare interface IMediaManagerClass {
+  getInstance(): MediaManager;
+}
 
-/**
- * 获取媒体文件信息 (静态方法)
- * 对应 C++: GetMediaInfoWrap
- */
-export const getMediaInfo = (filePath: string): MediaInfo => {
-    return nativeAddon.getMediaInfo(filePath);
-};
+export interface IFFmpegModule {
+  MediaManager: IMediaManagerClass;
+}
+
 
 /**
  * 媒体流管理器
  * 对应 C++: MediaManagerWrapper 类
  */
 export class MediaManager {
+    private static instance: MediaManager
+    public static getInstance(): MediaManager {
+        if (!MediaManager.instance) {
+            MediaManager.instance = new MediaManager()
+        }
+        return MediaManager.instance
+    }
+
     private _instance: INativeMediaManager;
 
-    constructor() {
-        // 实例化 C++ 对象
+    private constructor() {
         this._instance = new nativeAddon.MediaManager();
     }
 
@@ -76,6 +83,10 @@ export class MediaManager {
         ow: number, oh: number
     ): boolean {
         return this._instance.addMedia(devId, index, url, x, y, sw, sh, ow, oh);
+    }
+
+    getMediaInfo(filePath: string): MediaInfo {
+        return nativeAddon.getMediaInfo(filePath);
     }
 
     /**

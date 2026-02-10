@@ -2,7 +2,7 @@
   "name": "module-ffmpeg-core",
   "version": "1.0.0",
   "description": "",
-  "main": "",
+  "main": "./dist/index.js",
   "engines": {
     "node": ">=20.19.0"
   },
@@ -17,15 +17,12 @@
     "prebuild:release": "rimraf dist",
     "compile:ts:release": "tsc -p tsconfig.release.json",
     "copy:addon": "shx cp build/Release/module-ffmplayer-core.node dist/",
-
     "/////": "流程: 清理dist -> 编译C++(增量) -> 编译TS -> 复制.node到dist",
     "build:release": "pnpm run prebuild:release && pnpm run build:native && pnpm run compile:ts:release && pnpm run copy:addon",
-
     "//////": "=== 测试流程 (Test) ===",
     "prebuild:test": "rimraf test_dist",
     "compile:ts:test": "tsc -p tsconfig.test.json",
     "exec:jest": "jest --config jest.config.js",
-
     "///////": "流程: 清理test_dist -> 编译C++(增量) -> 编译测试TS -> 运行Jest",
     "test": "pnpm run prebuild:test && pnpm run compile:ts:test && pnpm run exec:jest"
   },
