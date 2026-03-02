@@ -194,6 +194,10 @@ Napi::Value GetMediaInfoWrap(const Napi::CallbackInfo &info)
     // 1. 参数校验
     if (info.Length() < 1 || !info[0].IsString())
     {
+        if(info.Length() < 1)
+            spdlog::error("getMediaInfo error: No path argument provided");
+        else
+            spdlog::error("getMediaInfo error: Path argument is not a string");
         Napi::TypeError::New(env, "String path expected").ThrowAsJavaScriptException();
         return env.Null();
     }

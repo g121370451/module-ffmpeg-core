@@ -1,0 +1,9 @@
+{
+  "id": "module-ffmpeg-core",
+  "name": "FFmpeg 核心功能插件",
+  "version": "1.0.0",
+  "type": "functional",
+  "description": "FFmpeg 音视频处理功能插件",
+  "author": "Your Name",
+  "worker": "worker/index.js"
+}

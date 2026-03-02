@@ -1,7 +1,5 @@
-import bindings from 'bindings';
-
 // 1. 加载原生模块
-const nativeAddon = bindings('module-ffmplayer-core');
+const nativeAddon = require('./module-ffmplayer-core.node');
 
 // --- 类型定义 ---
 
