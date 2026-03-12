@@ -5,5 +5,5 @@
   "type": "functional",
   "description": "FFmpeg 音视频处理功能插件",
   "author": "Your Name",
-  "worker": "worker/index.js"
+  "worker": "dist/index.js"
 }
