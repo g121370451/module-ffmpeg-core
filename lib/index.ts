@@ -201,7 +201,7 @@ function setupDiscoveryPort() {
     const msg = e.data
 
     if (msg.type === 'plugin-discovery') {
-      console.log('[module-ffmpeg-core] Received plugin discovery:', msg.plugins)
+      console.log('[ffmpeg-core] Received plugin discovery:', msg.plugins)
       handleDiscovery(msg, e.ports)
     }
 
@@ -217,7 +217,7 @@ function registerSelf() {
   if (!workerProcess.parentPort) return
 
   const metadata: PluginMetadata = {
-    id: 'module-ffmpeg-core',
+    id: 'ffmpeg-core',
     name: 'FFmpeg 核心功能插件',
     version: '1.0.0',
     type: 'functional',
@@ -244,7 +244,7 @@ function handleDiscovery(msg: any, ports: any[] | undefined) {
   plugins.forEach((plugin: any, index: number) => {
     if (ports && ports[index]) {
       connectedPlugins.set(plugin.metadata.id, ports[index])
-      console.log(`[module-ffmpeg-core] Connected to plugin: ${plugin.metadata.id}`)
+      console.log(`[ffmpeg-core] Connected to plugin: ${plugin.metadata.id}`)
 
       ports[index].on('message', (e: MessageEvent) => {
         if (e.data.type === 'media-manager') {
@@ -409,7 +409,7 @@ function handleMediaManagerRequestFromPort(e: MessageEvent, sourcePluginId: stri
 }
 
 // 启动 worker 逻辑
-console.log('[module-ffmpeg-core] Worker starting...')
+console.log('[ffmpeg-core] Worker starting...')
 
 if (workerProcess.parentPort) {
   workerProcess.parentPort.on('message', (e: MessageEvent) => {
@@ -417,13 +417,13 @@ if (workerProcess.parentPort) {
 
     if (msg.type === 'connect-discovery' && e.ports && e.ports[0]) {
       discoveryPort = e.ports[0]
-      console.log('[module-ffmpeg-core] Discovery port connected')
+      console.log('[ffmpeg-core] Discovery port connected')
       setupDiscoveryPort()
       registerSelf()
     }
 
     if (msg.type === 'init-functional') {
-      console.log('[module-ffmpeg-core] Initializing functional plugin...')
+      console.log('[ffmpeg-core] Initializing functional plugin...')
     }
 
     if (msg.type === 'media-manager') {

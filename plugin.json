@@ -1,5 +1,5 @@
 {
-  "id": "module-ffmpeg-core",
+  "id": "ffmpeg-core",
   "name": "FFmpeg 核心功能插件",
   "version": "1.0.0",
   "type": "functional",

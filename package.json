@@ -24,7 +24,8 @@
     "compile:ts:test": "tsc -p tsconfig.test.json",
     "exec:jest": "jest --config jest.config.js",
     "///////": "流程: 清理test_dist -> 编译C++(增量) -> 编译测试TS -> 运行Jest",
-    "test": "pnpm run prebuild:test && pnpm run compile:ts:test && pnpm run exec:jest"
+    "test": "pnpm run prebuild:test && pnpm run build:native && pnpm run compile:ts:test && pnpm run exec:jest",
+    "pack": "node scripts/pack.mjs"
   },
   "files": [
     "lib/*",
@@ -44,6 +45,8 @@
     "cmake-js": "^7.4.0",
     "node-addon-api": "^8.5.0",
     "rimraf": "^6.1.2",
+    "adm-zip": "^0.5.16",
+    "@types/adm-zip": "^0.5.7",
     "shx": "^0.4.0",
     "typescript": "^5.9.3",
     "vitest": "^4.0.16"
