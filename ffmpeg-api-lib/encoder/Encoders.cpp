@@ -15,7 +15,9 @@ bool MjpegEncoder::Open(int w, int h)
     enc_ctx = avcodec_alloc_context3(codec);
     enc_ctx->width = w;
     enc_ctx->height = h;
-    enc_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
+    enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
+    enc_ctx->color_range = AVCOL_RANGE_MPEG;
+    enc_ctx->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
     enc_ctx->time_base = {1, 25};
 
     return avcodec_open2(enc_ctx, codec, nullptr) >= 0;
