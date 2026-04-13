@@ -10,6 +10,9 @@ Napi::Object MediaManagerWrapper::Init(Napi::Env env, Napi::Object exports)
                                           InstanceMethod("deleteMedia", &MediaManagerWrapper::DeleteMedia),
                                           InstanceMethod("getNextFrame", &MediaManagerWrapper::GetNextFrame),
                                           InstanceMethod("updateROI", &MediaManagerWrapper::UpdateROI),
+                                          InstanceMethod("updateQuality", &MediaManagerWrapper::UpdateQuality),
+                                          InstanceMethod("updateOutputSize", &MediaManagerWrapper::UpdateOutputSize),
+                                          InstanceMethod("seekTo", &MediaManagerWrapper::SeekTo),
                                           InstanceMethod("pause", &MediaManagerWrapper::Pause),
                                           InstanceMethod("resume", &MediaManagerWrapper::Resume),
                                       });
@@ -43,8 +46,18 @@ Napi::Value MediaManagerWrapper::AddMedia(const Napi::CallbackInfo &info)
             info[5].As<Napi::Number>(), info[6].As<Napi::Number>(),
             info[7].As<Napi::Number>(), info[8].As<Napi::Number>());
 
+        double startTime = 0;
+        double endTime = 0;
+        int qualityArgIdx = 9;
+        if (info.Length() > 9 && info[9].IsNumber())
+            startTime = info[9].As<Napi::Number>().DoubleValue();
+        if (info.Length() > 10 && info[10].IsNumber())
+            endTime = info[10].As<Napi::Number>().DoubleValue();
+        if (info.Length() > 11 && info[11].IsNumber())
+            config.quality = info[11].As<Napi::Number>().Int32Value();
+
         auto encoder = std::make_unique<MjpegEncoder>();
-        bool res = _manager->AddMedia(devId, index, url, config, std::move(encoder));
+        bool res = _manager->AddMedia(devId, index, url, config, std::move(encoder), startTime, endTime);
 
         return Napi::Boolean::New(env, res);
     }
@@ -98,6 +111,44 @@ Napi::Value MediaManagerWrapper::UpdateROI(const Napi::CallbackInfo &info)
         info[4].As<Napi::Number>(),
         info[5].As<Napi::Number>());
     return info.Env().Undefined();
+}
+
+// JS: updateQuality(deviceId, index, quality)
+Napi::Value MediaManagerWrapper::UpdateQuality(const Napi::CallbackInfo &info)
+{
+    _manager->UpdateQuality(
+        info[0].As<Napi::String>(),
+        info[1].As<Napi::Number>(),
+        info[2].As<Napi::Number>());
+    return info.Env().Undefined();
+}
+
+// JS: updateOutputSize(deviceId, index, outW, outH)
+Napi::Value MediaManagerWrapper::UpdateOutputSize(const Napi::CallbackInfo &info)
+{
+    _manager->UpdateOutputSize(
+        info[0].As<Napi::String>(),
+        info[1].As<Napi::Number>(),
+        info[2].As<Napi::Number>(),
+        info[3].As<Napi::Number>());
+    return info.Env().Undefined();
+}
+
+// JS: seekTo(deviceId, index, timeSec)
+Napi::Value MediaManagerWrapper::SeekTo(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    if (info.Length() < 3 || !info[0].IsString() || !info[1].IsNumber() || !info[2].IsNumber())
+    {
+        Napi::TypeError::New(env, "Expected: seekTo(deviceId: string, index: number, timeSec: number)")
+            .ThrowAsJavaScriptException();
+        return env.Undefined();
+    }
+    _manager->SeekTo(
+        info[0].As<Napi::String>(),
+        info[1].As<Napi::Number>(),
+        info[2].As<Napi::Number>().DoubleValue());
+    return env.Undefined();
 }
 
 Napi::Value MediaManagerWrapper::Pause(const Napi::CallbackInfo &info)
@@ -169,7 +220,7 @@ Napi::Value MediaManagerWrapper::GetNextFrame(const Napi::CallbackInfo &info)
             obj.Set("data", Napi::Buffer<uint8_t>::Copy(env, frame.data.data(), frame.data.size()));
             obj.Set("width", Napi::Number::New(env, frame.width));
             obj.Set("height", Napi::Number::New(env, frame.height));
-            obj.Set("timesteamp", Napi::Number::New(env, frame.timestamp));
+            obj.Set("timestamp", Napi::Number::New(env, frame.timestamp));
         }
 
         return obj;
@@ -234,11 +285,85 @@ Napi::Value GetMediaInfoWrap(const Napi::CallbackInfo &info)
         return env.Null();
     }
 }
+// JS: cropMedia(inputPath, outputPath, srcX, srcY, srcW, srcH, outW, outH, quality, startTime, endTime)
+// 返回: { success: boolean, error?: string }
+Napi::Value CropMediaWrap(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+
+    if (info.Length() < 9)
+    {
+        Napi::TypeError::New(env, "Expected at least 9 arguments: inputPath, outputPath, srcX, srcY, srcW, srcH, outW, outH, quality [, startTime, endTime]")
+            .ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    if (!info[0].IsString() || !info[1].IsString())
+    {
+        Napi::TypeError::New(env, "inputPath and outputPath must be strings")
+            .ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    for (int i = 2; i < 9; i++)
+    {
+        if (!info[i].IsNumber())
+        {
+            Napi::TypeError::New(env, "srcX, srcY, srcW, srcH, outW, outH, quality must be numbers")
+                .ThrowAsJavaScriptException();
+            return env.Null();
+        }
+    }
+
+    std::string inputPath = info[0].As<Napi::String>().Utf8Value();
+    std::string outputPath = info[1].As<Napi::String>().Utf8Value();
+
+    double startTime = 0;
+    double endTime = 0;
+    if (info.Length() > 9 && info[9].IsNumber())
+        startTime = info[9].As<Napi::Number>().DoubleValue();
+    if (info.Length() > 10 && info[10].IsNumber())
+        endTime = info[10].As<Napi::Number>().DoubleValue();
+
+    try
+    {
+        CropResult res = MediaProcessor::CropMedia(
+            inputPath, outputPath,
+            info[2].As<Napi::Number>().Int32Value(),
+            info[3].As<Napi::Number>().Int32Value(),
+            info[4].As<Napi::Number>().Int32Value(),
+            info[5].As<Napi::Number>().Int32Value(),
+            info[6].As<Napi::Number>().Int32Value(),
+            info[7].As<Napi::Number>().Int32Value(),
+            info[8].As<Napi::Number>().Int32Value(),
+            startTime,
+            endTime);
+
+        Napi::Object obj = Napi::Object::New(env);
+        obj.Set("success", Napi::Boolean::New(env, res.success));
+        if (!res.success)
+            obj.Set("error", Napi::String::New(env, res.error));
+        return obj;
+    }
+    catch (const std::exception &e)
+    {
+        spdlog::error("cropMedia error: {}", e.what());
+        Napi::Error::New(env, e.what()).ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    catch (...)
+    {
+        spdlog::error("cropMedia error");
+        Napi::Error::New(env, "cropMedia unknown error").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+}
 // 模块导出
 Napi::Object InitAll(Napi::Env env, Napi::Object exports)
 {
     MediaManagerWrapper::Init(env, exports);
     exports.Set(Napi::String::New(env, "getMediaInfo"), Napi::Function::New(env, GetMediaInfoWrap));
+    exports.Set(Napi::String::New(env, "cropMedia"), Napi::Function::New(env, CropMediaWrap));
     return exports;
 }
 

@@ -6,7 +6,7 @@ MediaManager::MediaManager() : sync_clock_()
 {
 }
 
-bool MediaManager::AddMedia(const std::string &deviceId, int indexCode, const std::string &url, const ROIConfig &config, std::unique_ptr<IEncoder> encoder)
+bool MediaManager::AddMedia(const std::string &deviceId, int indexCode, const std::string &url, const ROIConfig &config, std::unique_ptr<IEncoder> encoder, double startTime, double endTime)
 {
     auto key = MakeKey(deviceId, indexCode);
     auto ctx = std::make_shared<StreamContext>();
@@ -55,12 +55,23 @@ bool MediaManager::AddMedia(const std::string &deviceId, int indexCode, const st
     // 4. 配置编码器
     ctx->config = config;
     ctx->encoder = std::move(encoder);
-    if (!ctx->encoder->Open(config.outW, config.outH))
+    if (!ctx->encoder->Open(config.outW, config.outH, config.quality))
         return false;
+
+    // 存储播放时间范围
+    ctx->startTime = startTime;
+    ctx->endTime = endTime;
+
+    // 如果指定了 startTime，先 seek 到起始位置
+    if (startTime > 0) {
+        int64_t seekTarget = static_cast<int64_t>(startTime * AV_TIME_BASE);
+        avformat_seek_file(ctx->fmt_ctx, -1, INT64_MIN, seekTarget, seekTarget, 0);
+        avcodec_flush_buffers(ctx->dec_ctx);
+    }
 
     ctx->worker = std::thread(&MediaManager::DecodingLoop, this, ctx);
     ctx->totalTime = ctx->fmt_ctx->duration;
-    this->sync_clock_.markCurrentTime(ctx->totalTime);
+    this->sync_clock_.resetToTime(startTime > 0 ? startTime : 0.0);
     std::lock_guard<std::mutex> lock(map_mtx);
     contexts[key] = ctx;
     return true;
@@ -145,7 +156,7 @@ bool MediaManager::InitFilterGraph(std::shared_ptr<StreamContext> ctx, const ROI
     std::string filters_descr = "crop=" + std::to_string(cfg.srcW) + ":" + std::to_string(cfg.srcH) +
                                 ":" + std::to_string(cfg.srcX) + ":" + std::to_string(cfg.srcY) +
                                 ",scale=" + std::to_string(cfg.outW) + ":" + std::to_string(cfg.outH) +
-                                ",format=yuv420p";
+                                ",format=yuvj420p";
 
     outputs->name = av_strdup("in");
     outputs->filter_ctx = ctx->buffersrc_ctx;
@@ -174,7 +185,7 @@ void MediaManager::DecodingLoop(std::shared_ptr<StreamContext> ctx)
     AVFrame *frame = av_frame_alloc();
     AVFrame *yuvFrame = av_frame_alloc();
 
-    yuvFrame->format = AV_PIX_FMT_YUV420P;
+    yuvFrame->format = AV_PIX_FMT_YUVJ420P;
     yuvFrame->width = ctx->config.outW;
     yuvFrame->height = ctx->config.outH;
     av_frame_get_buffer(yuvFrame, 0);
@@ -217,6 +228,26 @@ void MediaManager::DecodingLoop(std::shared_ptr<StreamContext> ctx)
                                 { return ctx->stop_flag.load(); });
             break;
         }
+
+        // 处理外部 seek 请求
+        if (ctx->seek_requested)
+        {
+            double target;
+            {
+                std::lock_guard<std::mutex> lk(ctx->seek_mtx);
+                target = ctx->seek_target;
+            }
+            int64_t seekPts = static_cast<int64_t>(target * AV_TIME_BASE);
+            avformat_seek_file(ctx->fmt_ctx, -1, INT64_MIN, seekPts, seekPts, 0);
+            avcodec_flush_buffers(ctx->dec_ctx);
+            ctx->encoder->Close();
+            ctx->encoder->Open(ctx->config.outW, ctx->config.outH, ctx->config.quality);
+            ctx->ReleaseFilter();
+            this->sync_clock_.resetToTime(target);
+            ctx->seek_requested = false;
+            spdlog::info("SeekTo completed: {}s", target);
+        }
+
         if (av_read_frame(ctx->fmt_ctx, pkt) >= 0)
         {
             if (pkt->stream_index == ctx->video_idx)
@@ -227,17 +258,30 @@ void MediaManager::DecodingLoop(std::shared_ptr<StreamContext> ctx)
                     {
                         double timestamp = static_cast<double>(frame->pts) * av_q2d(ctx->fmt_ctx->streams[ctx->video_idx]->time_base);
                         // spdlog::info("current time is {}", timestamp);
+
+                        // endTime 检测：到达 endTime 后跳回 startTime
+                        if (ctx->endTime > 0 && timestamp >= ctx->endTime)
+                        {
+                            av_frame_unref(frame);
+                            double seekTo = ctx->startTime > 0 ? ctx->startTime : 0.0;
+                            int64_t seekPts = static_cast<int64_t>(seekTo * AV_TIME_BASE);
+                            avformat_seek_file(ctx->fmt_ctx, -1, INT64_MIN, seekPts, seekPts, 0);
+                            avcodec_flush_buffers(ctx->dec_ctx);
+                            ctx->encoder->Close();
+                            ctx->encoder->Open(ctx->config.outW, ctx->config.outH, ctx->config.quality);
+                            ctx->ReleaseFilter();
+                            this->sync_clock_.resetToTime(seekTo);
+                            goto next_iteration;
+                        }
+
                         bool currentFrameSend = this->sync_clock_.syncControl(timestamp * 1000);
                         if (!currentFrameSend)
                         {
                             continue;
                         }
-                        // frame->pts += ctx->pts_offset;
-                        // ctx->last_pts = frame->pts;
                         // 检查配置动态更新
-                        if (ctx->config_changed || !ctx->filter_graph)
+                        if (ctx->filter_changed || !ctx->filter_graph)
                         {
-                            // spdlog::info("Re-initializing filter graph with new configuration.");
                             std::lock_guard<std::mutex> lk(ctx->config_mtx);
                             curCfg = ctx->config;
                             if (!InitFilterGraph(ctx, curCfg, frame))
@@ -245,7 +289,16 @@ void MediaManager::DecodingLoop(std::shared_ptr<StreamContext> ctx)
                                 spdlog::error("Failed to re-init filter graph");
                                 continue;
                             }
-                            ctx->config_changed = false;
+                            ctx->encoder->Reset(curCfg.outW, curCfg.outH, curCfg.quality);
+                            ctx->filter_changed = false;
+                            ctx->encoder_changed = false;
+                        }
+                        else if (ctx->encoder_changed)
+                        {
+                            std::lock_guard<std::mutex> lk(ctx->config_mtx);
+                            curCfg = ctx->config;
+                            ctx->encoder->Reset(curCfg.outW, curCfg.outH, curCfg.quality);
+                            ctx->encoder_changed = false;
                         }
                         // spdlog::info("filter process");
                         if (av_buffersrc_add_frame_flags(ctx->buffersrc_ctx, frame, AV_BUFFERSRC_FLAG_KEEP_REF) >= 0)
@@ -254,6 +307,7 @@ void MediaManager::DecodingLoop(std::shared_ptr<StreamContext> ctx)
                             {
                                 EncoderOutput out;
                                 ctx->encoder->Encode(yuvFrame, out);
+                                out.timestamp = static_cast<int64_t>(timestamp * 1000);
                                 // 更新 B 帧并设为忙碌
                                 {
                                     std::lock_guard<std::mutex> lk(ctx->sync_mtx);
@@ -272,15 +326,17 @@ void MediaManager::DecodingLoop(std::shared_ptr<StreamContext> ctx)
         }
         else
         {
-            // spdlog::info("Stream ended, seeking back to start.");
-            // ctx->pts_offset = ctx->last_pts + 1;
-            avformat_seek_file(ctx->fmt_ctx, -1, INT64_MIN, 0, INT64_MAX, AVSEEK_FLAG_BACKWARD);
+            // 流结束，跳回 startTime（如果设置了的话，否则跳回 0）
+            double seekTo = ctx->startTime > 0 ? ctx->startTime : 0.0;
+            int64_t seekPts = static_cast<int64_t>(seekTo * AV_TIME_BASE);
+            avformat_seek_file(ctx->fmt_ctx, -1, INT64_MIN, seekPts, seekPts, 0);
             avcodec_flush_buffers(ctx->dec_ctx);
             ctx->encoder->Close();
-            ctx->encoder->Open(ctx->config.outW, ctx->config.outH);
+            ctx->encoder->Open(ctx->config.outW, ctx->config.outH, ctx->config.quality);
             ctx->ReleaseFilter();
-            this->sync_clock_.markCurrentTime(ctx->totalTime);
+            this->sync_clock_.resetToTime(seekTo);
         }
+        next_iteration:;
     }
 
     av_frame_free(&yuvFrame);
@@ -296,8 +352,48 @@ void MediaManager::UpdateConfig(const std::string &devId, int idx, int x, int y,
     {
         auto &ctx = contexts[key];
         std::lock_guard<std::mutex> cfg_lock(ctx->config_mtx);
-        ctx->config = {x, y, sw, sh, ctx->config.outW, ctx->config.outH};
-        ctx->config_changed = true;
+        ctx->config = {x, y, sw, sh, ctx->config.outW, ctx->config.outH, ctx->config.quality};
+        ctx->filter_changed = true;
+    }
+}
+
+void MediaManager::UpdateQuality(const std::string &devId, int idx, int quality)
+{
+    auto key = devId + "_" + std::to_string(idx);
+    std::lock_guard<std::mutex> lock(map_mtx);
+    if (contexts.find(key) != contexts.end())
+    {
+        auto &ctx = contexts[key];
+        std::lock_guard<std::mutex> cfg_lock(ctx->config_mtx);
+        ctx->config.quality = quality;
+        ctx->encoder_changed = true;
+    }
+}
+
+void MediaManager::UpdateOutputSize(const std::string &devId, int idx, int outW, int outH)
+{
+    auto key = devId + "_" + std::to_string(idx);
+    std::lock_guard<std::mutex> lock(map_mtx);
+    if (contexts.find(key) != contexts.end())
+    {
+        auto &ctx = contexts[key];
+        std::lock_guard<std::mutex> cfg_lock(ctx->config_mtx);
+        ctx->config.outW = outW;
+        ctx->config.outH = outH;
+        ctx->filter_changed = true;
+    }
+}
+
+void MediaManager::SeekTo(const std::string &deviceId, int indexCode, double timeSec)
+{
+    auto key = MakeKey(deviceId, indexCode);
+    std::lock_guard<std::mutex> lock(map_mtx);
+    if (contexts.find(key) != contexts.end())
+    {
+        auto &ctx = contexts[key];
+        std::lock_guard<std::mutex> lk(ctx->seek_mtx);
+        ctx->seek_target = timeSec;
+        ctx->seek_requested = true;
     }
 }
 

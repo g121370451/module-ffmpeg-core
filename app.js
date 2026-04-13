@@ -1,64 +1,73 @@
 const { MediaManager, getMediaInfo } = require('./build/Release/module-ffmplayer-core.node');
-console.log(MediaManager);
-let fs = require('fs');
-var showMem = function () {
-    var mem = process.memoryUsage();
-    var format = function (bytes) {
-        return (bytes / 1024 / 1024).toFixed(2) + 'MB';
-    };
-    console.log('Process1: heapTotal ' + format(mem.heapTotal) + ' heapUsed ' + format(mem.heapUsed) + ' rss ' + format(mem.rss));
-};
+
+const path = process.argv[2] || "C:\\Users\\gpy\\Desktop\\480x480\\q.gif";
+
 (async () => {
-    const manager = new MediaManager();
-    let save = false;
-    // const path = "C:\\Users\\gpy\\Desktop\\480x480\\xx.jpg";
-    const path = "C:\\Users\\gpy\\Desktop\\480x480\\q.gif";
-    // const path = "C:\\Users\\gpy\\Desktop\\480x480\\541.txt";
-
-    console.log("--- 正在获取媒体元数据 ---");
     const info = getMediaInfo(path);
-    console.log(JSON.stringify(info, null, 4));
-
-    if (info.valid) {
-        console.log("\n--- 元数据校验通过，准备启动流管理 ---");
-        // const path = "C:\\Users\\gpy\\Desktop\\480x480\\test.mp4";
-        // 1. 添加媒体流，设置初始截取区域 (0,0,640,480) 缩放到 (320,240)
-        const success = manager.addMedia("cam_01", 1001, path, 169, 0, 162, 348, 224, 480);
-        console.log('success', success)
-        if (success) {
-            console.log("媒体流已启动...");
-
-            // 2. 每 40ms 轮询一次 A 指针缓冲区
-            setInterval(() => {
-                let frame = manager.getNextFrame("cam_01", 1001);
-                // showMem();
-                if (frame.success) {
-                    // console.log(`收到新帧: ${frame.width}x${frame.height}, 大小: ${frame.data.length} bytes,shijian: ${frame.timestamp} ms`);
-                    // frame.data 现在是一个标准的 Node.js Buffer
-                    // console.log(`收到 MJPEG 帧: ${frame.data.length} bytes, 尺寸: ${frame.width}x${frame.height}`);
-                    // 这里可以将 Buffer 通过 WebSocket 发送或写入文件
-                    if (save && frame.data.length != 0) {
-                        fs.writeFile('./demo.jpg', frame.data, (err) => {
-                            if (err) {
-                                console.error('保存失败:', err);
-                                return;
-                            }
-                            console.log('图片保存成功！');
-                            save = false;
-                        });
-                    }
-                }
-            }, 33);
-
-            // 3. 5秒后动态修改截取 ROI (向右偏移 100 像素)
-            setTimeout(() => {
-                console.log("动态更新 ROI...");
-                const pauseStatus = manager.pause("cam_01", 1001)
-                console.log('pauseStatus', pauseStatus)
-                // save = true
-            }, 5000);
-        }
-    } else {
-        console.error("无法解析媒体文件，请检查路径。");
+    console.log("媒体信息:", JSON.stringify(info, null, 2));
+    if (!info.valid) {
+        console.error("无法解析媒体文件:", path);
+        process.exit(1);
     }
-})()
+
+    const manager = new MediaManager();
+    const qualities = [1, 2, 5, 8, 10, 15, 20, 25, 31];
+    const devId = "qtest";
+    // 截取区域和输出尺寸，根据实际视频调整
+    const srcW = Math.min(info.width, 640);
+    const srcH = Math.min(info.height, 480);
+    const outW = 320, outH = 240;
+
+    console.log(`\n源: ${path} (${info.width}x${info.height})`);
+    console.log(`ROI: (0,0,${srcW},${srcH}) -> ${outW}x${outH}\n`);
+
+    // 为每个 quality 创建一个通道 (index = i)
+    for (let i = 0; i < qualities.length; i++) {
+        const q = qualities[i];
+        // addMedia(devId, index, url, x, y, sw, sh, ow, oh, startTime, endTime, quality)
+        const ok = manager.addMedia(devId, i, path, 0, 0, srcW, srcH, outW, outH, 0, 0, q);
+        if (!ok) {
+            console.error(`addMedia failed for q:v=${q}`);
+            process.exit(1);
+        }
+    }
+
+    // 等待所有通道解码出首帧
+    await new Promise(r => setTimeout(r, 1500));
+
+    console.log("===== Quality (-q:v) vs Frame Size =====");
+    console.log(`${"q:v".padStart(6)}  ${"size(bytes)".padStart(12)}  ${"WxH".padStart(10)}`);
+    console.log("-".repeat(34));
+
+    const sizes = [];
+    for (let i = 0; i < qualities.length; i++) {
+        const frame = manager.getNextFrame(devId, i);
+        if (frame.success) {
+            sizes.push(frame.data.length);
+            console.log(
+                `${String(qualities[i]).padStart(6)}  ${String(frame.data.length).padStart(12)}  ${`${frame.width}x${frame.height}`.padStart(10)}`
+            );
+        } else {
+            sizes.push(-1);
+            console.log(`${String(qualities[i]).padStart(6)}  ${"FAILED".padStart(12)}`);
+        }
+    }
+
+    console.log("========================================");
+
+    // 检查单调递减
+    let monotonic = true;
+    for (let i = 1; i < sizes.length; i++) {
+        if (sizes[i] > 0 && sizes[i - 1] > 0 && sizes[i] > sizes[i - 1]) {
+            console.warn(`⚠ q:v=${qualities[i]}(${sizes[i]}B) > q:v=${qualities[i - 1]}(${sizes[i - 1]}B)`);
+            monotonic = false;
+        }
+    }
+    if (monotonic) console.log("✓ 帧大小随 q:v 增大单调递减，质量参数生效");
+
+    // 清理所有通道
+    for (let i = 0; i < qualities.length; i++) {
+        manager.deleteMedia(devId, i);
+    }
+    process.exit(0);
+})();

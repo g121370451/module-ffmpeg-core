@@ -18,8 +18,9 @@ struct ROIConfig
     int srcX, srcY;
     int srcW, srcH;
     int outW, outH;
+    int quality;  // qscale 1-31, 1=最高质量, 默认 8
     ROIConfig();
-    ROIConfig(int x, int y, int sw, int sh, int ow, int oh);
+    ROIConfig(int x, int y, int sw, int sh, int ow, int oh, int q = 8);
 };
 
 struct FrameBuffer
@@ -58,12 +59,22 @@ struct StreamContext
     // 动态配置锁
     ROIConfig config;
     std::mutex config_mtx;
-    std::atomic<bool> config_changed{false};
+    std::atomic<bool> filter_changed{false};
+    std::atomic<bool> encoder_changed{false};
 
     std::atomic<bool> stop_flag{false};
     std::thread worker;
 
     int64_t totalTime;
+
+    // 播放时间范围（秒），<=0 表示不限制
+    double startTime = 0.0;
+    double endTime = 0.0;
+
+    // 外部 seek 请求
+    std::atomic<bool> seek_requested{false};
+    double seek_target = 0.0;
+    std::mutex seek_mtx;
 
     // 暂停控制
     std::atomic<bool> is_paused{false};

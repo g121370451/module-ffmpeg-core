@@ -15,6 +15,7 @@ extern int64_t AllowOffestTime;
 class SyncClock{
 public:
     void markCurrentTime(int64_t totalTime);
+    void resetToTime(double timeSec);
     bool syncControl(int64_t pts);
     void pause();
     void resume();

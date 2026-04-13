@@ -20,10 +20,10 @@ class IEncoder
 {
 public:
     virtual ~IEncoder() = default;
-    virtual bool Open(int w, int h) = 0;
+    virtual bool Open(int w, int h, int quality = 8) = 0;
     virtual void Encode(AVFrame *frame, EncoderOutput &out) = 0;
     virtual void Close() = 0;
-    virtual bool Reset(int w, int h) = 0;
+    virtual bool Reset(int w, int h, int quality = 8) = 0;
     virtual AVCodecContext* GetCodecContext() { return nullptr; }
 };
 
@@ -32,17 +32,18 @@ class MjpegEncoder : public IEncoder
 {
 private:
     AVCodecContext *enc_ctx = nullptr;
+    int _quality = 8;
 
 public:
     ~MjpegEncoder();
 
-    bool Open(int w, int h) override;
+    bool Open(int w, int h, int quality = 8) override;
 
     AVCodecContext* GetCodecContext() override;
 
     void Encode(AVFrame *frame, EncoderOutput &out) override;
 
     void Close() override;
-    
-    bool Reset(int w, int h) override;
+
+    bool Reset(int w, int h, int quality = 8) override;
 };

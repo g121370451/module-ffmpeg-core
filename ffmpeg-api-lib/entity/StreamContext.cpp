@@ -42,16 +42,11 @@ StreamContext::~StreamContext()
     }
 }
 
-ROIConfig::ROIConfig()
+ROIConfig::ROIConfig() : srcX(0), srcY(0), srcW(0), srcH(0), outW(0), outH(0), quality(8)
 {
 }
 
-ROIConfig::ROIConfig(int x, int y, int sw, int sh, int ow, int oh)
+ROIConfig::ROIConfig(int x, int y, int sw, int sh, int ow, int oh, int q)
+    : srcX(x), srcY(y), srcW(sw), srcH(sh), outW(ow), outH(oh), quality(q)
 {
-    this->srcX = x;
-    this->srcY = y;
-    this->srcW = sw;
-    this->srcH = sh;
-    this->outW = ow;
-    this->outH = oh;
 }

@@ -13,7 +13,7 @@ declare interface FrameData {
 
 declare interface MediaInfo {
     valid: boolean;
-    type: string;     // e.g., "video", "audio"
+    type: string;     // e.g., "video", "img", "gif", "unknown"
     duration: number; // 秒
     width: number;
     height: number;
@@ -21,12 +21,20 @@ declare interface MediaInfo {
     dar: string;      // Display Aspect Ratio
 }
 
+declare interface CropResult {
+    success: boolean;
+    error?: string;
+}
+
 // C++ 原生对象的接口契约 (不对外暴露，内部使用)
 interface INativeMediaManager {
     new(): INativeMediaManager;
-    addMedia(devId: string, index: number, url: string, x: number, y: number, sw: number, sh: number, ow: number, oh: number): boolean;
+    addMedia(devId: string, index: number, url: string, x: number, y: number, sw: number, sh: number, ow: number, oh: number, startTime?: number, endTime?: number, quality?: number): boolean;
     deleteMedia(devId: string, index: number): boolean;
     updateROI(devId: string, index: number, x: number, y: number, sw: number, sh: number): void;
+    updateQuality(devId: string, index: number, quality: number): void;
+    updateOutputSize(devId: string, index: number, outW: number, outH: number): void;
+    seekTo(devId: string, index: number, timeSec: number): void;
     pause(devId: string, index: number): boolean;
     resume(devId: string, index: number): boolean;
     getNextFrame(devId: string, index: number): FrameData;
@@ -111,6 +119,8 @@ export class MediaManager {
      * @param sh 裁剪源高度 (Source Height)
      * @param ow 输出宽度 (Output Width)
      * @param oh 输出高度 (Output Height)
+     * @param startTime 起始时间（秒），可选，仅视频生效
+     * @param endTime 结束时间（秒），可选，仅视频生效
      * @returns boolean 添加是否成功
      */
     addMedia(
@@ -118,9 +128,11 @@ export class MediaManager {
         index: number,
         url: string,
         x: number, y: number, sw: number, sh: number,
-        ow: number, oh: number
+        ow: number, oh: number,
+        startTime?: number, endTime?: number,
+        quality?: number
     ): boolean {
-        return this._instance.addMedia(devId, index, url, x, y, sw, sh, ow, oh);
+        return this._instance.addMedia(devId, index, url, x, y, sw, sh, ow, oh, startTime, endTime, quality);
     }
 
     /**
@@ -160,6 +172,37 @@ export class MediaManager {
     }
 
     /**
+     * 动态调整编码质量
+     * @param devId 设备ID/唯一标识
+     * @param index 通道索引
+     * @param quality qscale 1-31, 1=最高质量
+     */
+    updateQuality(devId: string, index: number, quality: number): void {
+        this._instance.updateQuality(devId, index, quality);
+    }
+
+    /**
+     * 动态调整输出分辨率
+     * @param devId 设备ID/唯一标识
+     * @param index 通道索引
+     * @param outW 输出宽度
+     * @param outH 输出高度
+     */
+    updateOutputSize(devId: string, index: number, outW: number, outH: number): void {
+        this._instance.updateOutputSize(devId, index, outW, outH);
+    }
+
+    /**
+     * 跳转到指定时间
+     * @param devId 设备ID/唯一标识
+     * @param index 通道索引
+     * @param timeSec 目标时间（秒）
+     */
+    seekTo(devId: string, index: number, timeSec: number): void {
+        this._instance.seekTo(devId, index, timeSec);
+    }
+
+    /**
      * 暂停播放
      * @param devId 设备ID/唯一标识
      * @param index 通道索引
@@ -187,6 +230,31 @@ export class MediaManager {
      */
     getNextFrame(devId: string, index: number): FrameData {
         return this._instance.getNextFrame(devId, index);
+    }
+
+    /**
+     * 裁剪/缩放媒体文件并输出到磁盘
+     * @param inputPath 输入文件路径
+     * @param outputPath 输出文件路径
+     * @param srcX 裁剪区域 X 坐标
+     * @param srcY 裁剪区域 Y 坐标
+     * @param srcW 裁剪宽度 (0=不裁剪)
+     * @param srcH 裁剪高度 (0=不裁剪)
+     * @param outW 输出宽度 (0=同裁剪)
+     * @param outH 输出高度 (0=同裁剪)
+     * @param quality 质量 1-100
+     * @param startTime 起始时间（秒），可选
+     * @param endTime 结束时间（秒），可选
+     * @returns CropResult
+     */
+    cropMedia(
+        inputPath: string, outputPath: string,
+        srcX: number, srcY: number, srcW: number, srcH: number,
+        outW: number, outH: number,
+        quality: number,
+        startTime?: number, endTime?: number
+    ): CropResult {
+        return nativeAddon.cropMedia(inputPath, outputPath, srcX, srcY, srcW, srcH, outW, outH, quality, startTime, endTime);
     }
 }
 
@@ -219,7 +287,7 @@ function registerSelf() {
   const metadata: PluginMetadata = {
     id: 'ffmpeg-core',
     name: 'FFmpeg 核心功能插件',
-    version: '1.0.0',
+    version: '1.1.0',
     type: 'functional',
     description: 'FFmpeg 音视频处理功能插件',
     interfaces: [
@@ -227,9 +295,13 @@ function registerSelf() {
       { name: 'addMedia', description: '添加媒体源' },
       { name: 'deleteMedia', description: '删除媒体源' },
       { name: 'updateROI', description: '更新感兴趣区域' },
+      { name: 'updateQuality', description: '动态调整编码质量' },
+      { name: 'updateOutputSize', description: '动态调整输出分辨率' },
+      { name: 'seekTo', description: '跳转到指定时间' },
       { name: 'pause', description: '暂停播放' },
       { name: 'resume', description: '恢复播放' },
-      { name: 'getNextFrame', description: '获取下一帧' }
+      { name: 'getNextFrame', description: '获取下一帧' },
+      { name: 'cropMedia', description: '裁剪/缩放媒体文件' }
     ]
   }
 
@@ -276,7 +348,10 @@ function handleMediaManagerRequest(e: MessageEvent) {
           payload.sw,
           payload.sh,
           payload.ow,
-          payload.oh
+          payload.oh,
+          payload.startTime,
+          payload.endTime,
+          payload.quality
         )
         break
       case 'deleteMedia':
@@ -293,6 +368,18 @@ function handleMediaManagerRequest(e: MessageEvent) {
         )
         result = true
         break
+      case 'updateQuality':
+        mediaManager.updateQuality(payload.devId, payload.index, payload.quality)
+        result = true
+        break
+      case 'updateOutputSize':
+        mediaManager.updateOutputSize(payload.devId, payload.index, payload.outW, payload.outH)
+        result = true
+        break
+      case 'seekTo':
+        mediaManager.seekTo(payload.devId, payload.index, payload.timeSec)
+        result = true
+        break
       case 'pause':
         result = mediaManager.pause(payload.devId, payload.index)
         break
@@ -301,6 +388,21 @@ function handleMediaManagerRequest(e: MessageEvent) {
         break
       case 'getNextFrame':
         result = mediaManager.getNextFrame(payload.devId, payload.index)
+        break
+      case 'cropMedia':
+        result = mediaManager.cropMedia(
+          payload.inputPath,
+          payload.outputPath,
+          payload.srcX,
+          payload.srcY,
+          payload.srcW,
+          payload.srcH,
+          payload.outW,
+          payload.outH,
+          payload.quality,
+          payload.startTime,
+          payload.endTime
+        )
         break
       default:
         throw new Error(`Unknown action: ${action}`)
@@ -361,7 +463,10 @@ function handleMediaManagerRequestFromPort(e: MessageEvent, sourcePluginId: stri
           payload.sw,
           payload.sh,
           payload.ow,
-          payload.oh
+          payload.oh,
+          payload.startTime,
+          payload.endTime,
+          payload.quality
         )
         break
       case 'deleteMedia':
@@ -378,6 +483,18 @@ function handleMediaManagerRequestFromPort(e: MessageEvent, sourcePluginId: stri
         )
         result = true
         break
+      case 'updateQuality':
+        mediaManager.updateQuality(payload.devId, payload.index, payload.quality)
+        result = true
+        break
+      case 'updateOutputSize':
+        mediaManager.updateOutputSize(payload.devId, payload.index, payload.outW, payload.outH)
+        result = true
+        break
+      case 'seekTo':
+        mediaManager.seekTo(payload.devId, payload.index, payload.timeSec)
+        result = true
+        break
       case 'pause':
         result = mediaManager.pause(payload.devId, payload.index)
         break
@@ -386,6 +503,21 @@ function handleMediaManagerRequestFromPort(e: MessageEvent, sourcePluginId: stri
         break
       case 'getNextFrame':
         result = mediaManager.getNextFrame(payload.devId, payload.index)
+        break
+      case 'cropMedia':
+        result = mediaManager.cropMedia(
+          payload.inputPath,
+          payload.outputPath,
+          payload.srcX,
+          payload.srcY,
+          payload.srcW,
+          payload.srcH,
+          payload.outW,
+          payload.outH,
+          payload.quality,
+          payload.startTime,
+          payload.endTime
+        )
         break
       default:
         throw new Error(`Unknown action: ${action}`)

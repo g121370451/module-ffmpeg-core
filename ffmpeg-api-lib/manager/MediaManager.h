@@ -14,10 +14,15 @@ public:
                   int indexCode,
                   const std::string &url,
                   const ROIConfig &config,
-                  std::unique_ptr<IEncoder> encoder);
+                  std::unique_ptr<IEncoder> encoder,
+                  double startTime = 0.0,
+                  double endTime = 0.0);
     bool DeleteMedia(const std::string &deviceId,
                      int indexCode);
     void UpdateConfig(const std::string &devId, int idx, int x, int y, int sw, int sh);
+    void UpdateQuality(const std::string &devId, int idx, int quality);
+    void UpdateOutputSize(const std::string &devId, int idx, int outW, int outH);
+    void SeekTo(const std::string &deviceId, int indexCode, double timeSec);
 
     bool Pause(const std::string &deviceId, int indexCode);
 

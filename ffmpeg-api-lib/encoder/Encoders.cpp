@@ -6,7 +6,7 @@ MjpegEncoder::~MjpegEncoder()
     Close();
 }
 
-bool MjpegEncoder::Open(int w, int h)
+bool MjpegEncoder::Open(int w, int h, int quality)
 {
     const AVCodec *codec = avcodec_find_encoder(AV_CODEC_ID_MJPEG);
     if (!codec)
@@ -15,10 +15,12 @@ bool MjpegEncoder::Open(int w, int h)
     enc_ctx = avcodec_alloc_context3(codec);
     enc_ctx->width = w;
     enc_ctx->height = h;
-    enc_ctx->pix_fmt = AV_PIX_FMT_YUV420P;
-    enc_ctx->color_range = AVCOL_RANGE_MPEG;
-    enc_ctx->strict_std_compliance = FF_COMPLIANCE_UNOFFICIAL;
+    enc_ctx->pix_fmt = AV_PIX_FMT_YUVJ420P;
     enc_ctx->time_base = {1, 25};
+    // 等价于 ffmpeg -q:v <quality>，值越大压缩越狠帧越小
+    enc_ctx->flags |= AV_CODEC_FLAG_QSCALE;
+    enc_ctx->global_quality = FF_QP2LAMBDA * quality;
+    _quality = quality;
 
     return avcodec_open2(enc_ctx, codec, nullptr) >= 0;
 }
@@ -55,10 +57,11 @@ void MjpegEncoder::Close()
     }
 }
 
-bool MjpegEncoder::Reset(int w, int h)
+bool MjpegEncoder::Reset(int w, int h, int quality)
 {
-    if (enc_ctx && enc_ctx->width == w && enc_ctx->height == h)
+    if (enc_ctx && enc_ctx->width == w && enc_ctx->height == h &&
+        _quality == quality)
         return true;
     Close();
-    return Open(w, h);
+    return Open(w, h, quality);
 }

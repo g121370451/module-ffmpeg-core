@@ -13,6 +13,9 @@ private:
     Napi::Value DeleteMedia(const Napi::CallbackInfo &info);
     Napi::Value GetNextFrame(const Napi::CallbackInfo &info);
     Napi::Value UpdateROI(const Napi::CallbackInfo& info);
+    Napi::Value UpdateQuality(const Napi::CallbackInfo& info);
+    Napi::Value UpdateOutputSize(const Napi::CallbackInfo& info);
+    Napi::Value SeekTo(const Napi::CallbackInfo& info);
     Napi::Value Pause(const Napi::CallbackInfo& info);
     Napi::Value Resume(const Napi::CallbackInfo& info);
 

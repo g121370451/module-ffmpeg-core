@@ -8,6 +8,11 @@ void SyncClock::markCurrentTime(int64_t totalTime) {
     this->totalTime = totalTime;
 }
 
+void SyncClock::resetToTime(double timeSec) {
+    this->startTime = av_gettime() / 1000 - static_cast<int64_t>(timeSec * 1000);
+    this->pauseAt = 0;
+}
+
 bool SyncClock::syncControl(int64_t pts) {
     // 获取现在的时刻的偏移
     int64_t base = this->getSyncDrift();
